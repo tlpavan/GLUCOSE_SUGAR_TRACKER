@@ -1,56 +1,18 @@
-import { useEffect, useState } from 'react';
-
-const API_STATE = {
-  checking: 'Checking API connection…',
-  connected: 'API connected',
-  unavailable: 'API unavailable',
-};
+import { useCallback, useEffect, useState } from 'react';
+import AuthScreen from './components/AuthScreen.jsx';
+import Dashboard from './components/Dashboard.jsx';
 
 export default function App() {
-  const [apiStatus, setApiStatus] = useState('checking');
-
+  // The bearer token stays in memory only; refreshing intentionally requires login.
+  const [session, setSession] = useState(null);
+  const [notice, setNotice] = useState('');
+  const logout = useCallback((message = 'You have been logged out.') => { setSession(null); setNotice(message); }, []);
+  const expired = useCallback(() => logout('Your session has expired. Please log in again.'), [logout]);
   useEffect(() => {
-    const controller = new AbortController();
-
-    async function checkApi() {
-      try {
-        const response = await fetch('/api/health', {
-          credentials: 'include',
-          signal: controller.signal,
-        });
-        const body = await response.json();
-
-        if (!response.ok || body.status !== 'ok') {
-          throw new Error('Unexpected health response');
-        }
-
-        setApiStatus('connected');
-      } catch (error) {
-        if (error.name !== 'AbortError') {
-          setApiStatus('unavailable');
-        }
-      }
-    }
-
-    checkApi();
-    return () => controller.abort();
-  }, []);
-
-  return (
-    <main className="app-shell">
-      <section className="hero" aria-labelledby="page-title">
-        <p className="eyebrow">Personal glucose journal</p>
-        <h1 id="page-title">Blood Sugar Tracker</h1>
-        <p className="intro">
-          Record daily readings and understand your glucose history in one
-          private place.
-        </p>
-        <p className={`status status--${apiStatus}`} role="status">
-          <span aria-hidden="true" className="status__dot" />
-          {API_STATE[apiStatus]}
-        </p>
-      </section>
-    </main>
-  );
+    if (!session) return undefined;
+    const timer = setTimeout(expired, Math.max(0, session.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [session, expired]);
+  if (!session) return <AuthScreen notice={notice} onAuthenticated={result => { setNotice(''); setSession({ user: result.user, token: result.token, expiresAt: Date.now() + result.expiresIn * 1000 }); }} />;
+  return <Dashboard session={session} onLogout={logout} onExpired={expired} />;
 }
-
