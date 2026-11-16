@@ -1,8 +1,8 @@
 # Blood Sugar Tracker (Kenpath Sweety)
 
-React/Vite + Express + PostgreSQL. Milestone 3 adds authenticated reading CRUD
-to the existing persistence and registration/login backend. Reports and auth UI
-remain deferred.
+React/Vite + Express + PostgreSQL. Milestone 4 adds daily, month-to-date and
+previous-calendar-month reports to the authenticated reading CRUD backend.
+React report screens remain deferred.
 
 ## Local configuration
 
@@ -121,7 +121,7 @@ validation, invalid JWTs, real registration/login and bcrypt hashes, concurrent
 duplicate emails, migration idempotence, database constraints and isolation guards.
 PostgreSQL results are valid only after the real integration suite executes.
 
-Reports, auth UI, logout/revocation, deployment, rate limiting,
+Auth/report UI, logout/revocation, deployment, rate limiting,
 password reset and email verification are outside this milestone. Add login and
 registration throttling before exposing this local-development API publicly.
 Do not automatically commit, push or publish.
@@ -168,3 +168,77 @@ boundary/invalid values on both writes, leap dates and timezone midnight, concur
 duplicates, four-slot limits, conflicting edits and cross-user isolation.
 `npm run build` checks the unchanged React production build. Tests reset only the
 explicitly guarded test database; no development migration is needed for this milestone.
+
+
+## Milestone 4 mandatory reports
+
+All three endpoints require a verified bearer token and an existing account.
+Only the required `date=YYYY-MM-DD` query parameter is accepted. Invalid or future
+selected dates return 400 with the existing `error.fields.date` envelope;
+missing/invalid authentication returns 401. Successful reports return 200.
+
+| Endpoint | Inclusive range for selected date 2026-10-15 |
+| --- | --- |
+| `GET /api/reports/daily?date=2026-10-15` | 2026-10-15 through 2026-10-15 |
+| `GET /api/reports/month-to-date?date=2026-10-15` | 2026-10-01 through 2026-10-15 |
+| `GET /api/reports/previous-month?date=2026-10-15` | 2026-09-01 through 2026-09-30 |
+
+All responses contain `range`, `summary` and `readings`. The summary uses `min`
+(lowest), `max` (highest), `average` (rounded to one decimal) and `count`.
+Readings use the CRUD response shape and are sorted by date and canonical slot
+order. Daily reports also return `slots`: four `{ slot, reading }` entries in
+canonical order, with `reading: null` for a missing measurement.
+
+Synthetic populated previous-month example:
+
+```json
+{
+  "range": { "startDate": "2026-09-01", "endDate": "2026-09-30" },
+  "summary": { "min": 101, "max": 101, "average": 101, "count": 1 },
+  "readings": [
+    { "id": 1, "date": "2026-09-15", "slot": "morning_fasting", "valueMgDl": 101, "createdAt": "2026-09-15T04:00:00.000Z" }
+  ]
+}
+```
+
+Empty daily example:
+
+```json
+{
+  "range": { "startDate": "2026-10-15", "endDate": "2026-10-15" },
+  "summary": { "min": null, "max": null, "average": null, "count": 0 },
+  "readings": [],
+  "slots": [
+    { "slot": "morning_fasting", "reading": null },
+    { "slot": "after_breakfast", "reading": null },
+    { "slot": "after_lunch", "reading": null },
+    { "slot": "after_dinner", "reading": null }
+  ]
+}
+```
+
+Empty monthly reports use the same null summary and empty list, without `slots`.
+This lets the future UI show "No readings for this period" without displaying
+zero as a glucose measurement. JSON numbers do not preserve trailing zeros:
+`101` represents the rounded value `101.0`; the future UI can use `toFixed(1)`.
+
+Range calculations work on calendar components. Daily uses the selected date
+for both boundaries. Month-to-date substitutes day 01 for the start. Previous
+month decrements the month (January becomes December of the preceding year),
+then reuses calendar validation to select its final valid day, including leap
+February. No date-only input is converted into a JavaScript midnight timestamp.
+Today is checked in `APP_TIME_ZONE`, consistently with CRUD. Previous-month
+requests for January 0001 return a field error rather than generating year 0000.
+
+A single parameterized SQL statement scopes both details and MIN/MAX/AVG/COUNT
+to the verified user ID and inclusive DATE bounds. PostgreSQL rounds the exact
+numeric AVG once; the repository converts it to a JSON number and preserves null
+for empty aggregates. Fetching summary and details in one statement keeps them
+consistent during concurrent reading changes. Existing database constraints and
+the four-slot specification are unchanged; no schema migration is needed.
+
+Verification commands remain `npm test`, `npm run build` and `git diff --check`.
+The report tests add calendar boundary cases and real PostgreSQL checks for
+statistics, rounding, inclusive boundaries, empty reports, date validation,
+unauthenticated/deleted accounts and cross-user isolation. No report UI, charts,
+optional report types, cache or dependency is introduced in this milestone.

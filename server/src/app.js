@@ -1,3 +1,4 @@
+import { createReportsRouter } from './reports/routes.js';
 import { createReadingsRouter } from './readings/routes.js';
 import cors from 'cors';
 import express from 'express';
@@ -20,6 +21,7 @@ export function createApp({ clientOrigin = 'http://localhost:5173', pool, jwtSec
   if (pool) {
     app.use('/api/auth', createAuthRouter({ pool, jwtSecret }));
     app.use('/api/readings', createReadingsRouter({ pool, jwtSecret, timeZone, now }));
+    app.use('/api/reports', createReportsRouter({ pool, jwtSecret, timeZone, now }));
   }
 
   app.use((_request, response) => {
