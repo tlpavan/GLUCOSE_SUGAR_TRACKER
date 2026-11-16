@@ -7,7 +7,7 @@ const pool = createPool(env.NODE_ENV === 'test' ? env.TEST_DATABASE_URL : env.DA
 
 try {
   await assertDatabase(pool, database);
-  const app = createApp({ clientOrigin: env.CLIENT_ORIGIN, pool, jwtSecret: env.JWT_SECRET });
+  const app = createApp({ clientOrigin: env.CLIENT_ORIGIN, pool, jwtSecret: env.JWT_SECRET, timeZone: env.APP_TIME_ZONE });
   const server = app.listen(env.PORT, () => {
     console.log(`API listening on http://localhost:${env.PORT}`);
   });

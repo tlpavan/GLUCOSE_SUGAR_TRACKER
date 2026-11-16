@@ -1,7 +1,8 @@
 # Blood Sugar Tracker (Kenpath Sweety)
 
-React/Vite + Express + PostgreSQL. Milestone 2 adds versioned persistence and
-registration/login; reading CRUD, reports and auth UI remain deferred.
+React/Vite + Express + PostgreSQL. Milestone 3 adds authenticated reading CRUD
+to the existing persistence and registration/login backend. Reports and auth UI
+remain deferred.
 
 ## Local configuration
 
@@ -85,7 +86,7 @@ errors. Malformed/oversized JSON is handled without exposing parser input.
 ## Database structure and rationale
 
 `001_create_users_and_readings.sql` creates precisely the milestone's columns.
-The earlier `updated_at` proposal remains deferred, as do all reading endpoints.
+The earlier `updated_at` proposal remains deferred. Reading CRUD uses this existing schema.
 
 - Identity primary keys give users/readings stable database-issued IDs.
 - `users_email_normalized` requires lowercase, trimmed nonblank stored email;
@@ -100,7 +101,7 @@ The earlier `updated_at` proposal remains deferred, as do all reading endpoints.
 - Unique `(user_id, reading_date, slot)` caps each user at four slots per day while
   allowing another user the same date/slot. Its leading columns also index reports.
 - `created_at TIMESTAMPTZ` records creation instants consistently. Future-date API
-  validation belongs to the reading milestone, not a changing-date CHECK.
+  validation is enforced by the reading API, not a changing-date CHECK.
 
 `runMigrations` uses a transaction, advisory lock and checksummed version ledger:
 concurrent runners serialize, failures roll back, repeated runs do nothing, and
@@ -120,7 +121,50 @@ validation, invalid JWTs, real registration/login and bcrypt hashes, concurrent
 duplicate emails, migration idempotence, database constraints and isolation guards.
 PostgreSQL results are valid only after the real integration suite executes.
 
-Reading CRUD, reports, auth UI, logout/revocation, deployment, rate limiting,
+Reports, auth UI, logout/revocation, deployment, rate limiting,
 password reset and email verification are outside this milestone. Add login and
 registration throttling before exposing this local-development API publicly.
 Do not automatically commit, push or publish.
+
+
+## Milestone 3 reading API
+
+All routes require `Authorization: Bearer <token>`. The account must still exist.
+Create and PUT requests use exactly these three fields (PUT is a full replacement):
+
+```json
+{ "date": "2026-11-16", "slot": "morning_fasting", "valueMgDl": 100 }
+```
+
+| Endpoint | Success |
+| --- | --- |
+| `POST /api/readings` | 201 `{ reading }` |
+| `GET /api/readings?date=YYYY-MM-DD` | 200 `{ readings }`, in canonical slot order; empty list when absent |
+| `PUT /api/readings/:id` | 200 `{ reading }` |
+| `DELETE /api/readings/:id` | 204, empty body |
+
+Reading responses contain `id`, `date`, `slot`, `valueMgDl` and `createdAt`.
+List requires a date. Unknown fields, including client-supplied ownership fields,
+are rejected. Validation errors use 400 and the existing `error.fields` envelope;
+unauthenticated requests use 401. A missing or foreign-owned reading returns the
+same 404 on update/delete, and duplicate date/slot writes return 409 `READING_EXISTS`.
+
+The shared create/update validator accepts only real YYYY-MM-DD dates and JSON
+integer values from 40 to 600 inclusive. It rejects numeric strings, fractions,
+missing values, invalid dates and future dates. Today is calculated in configured
+`APP_TIME_ZONE` (default Asia/Kolkata); timestamps are not accepted as reading dates.
+Calendar validation checks month lengths/leap years directly. SQL formats DATE
+as a date-only string so timezone conversion cannot move the response to another day.
+
+Every list/update/delete SQL statement includes the verified JWT user ID and uses
+bound parameters. The existing four-slot CHECK and unique user/date/slot constraint
+provide the four-per-day maximum, including simultaneous requests. A separate
+count-before-insert check would introduce a race, so PostgreSQL decides uniqueness.
+Failed conflicting updates leave the original record intact. Responses disable caching.
+
+Verification: `npm test` runs the original tests plus 28 reading/date tests against
+an isolated real `sweety_test` database. Coverage includes the full lifecycle,
+boundary/invalid values on both writes, leap dates and timezone midnight, concurrent
+duplicates, four-slot limits, conflicting edits and cross-user isolation.
+`npm run build` checks the unchanged React production build. Tests reset only the
+explicitly guarded test database; no development migration is needed for this milestone.

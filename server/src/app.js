@@ -1,9 +1,10 @@
+import { createReadingsRouter } from './readings/routes.js';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import { createAuthRouter } from './auth/routes.js';
 
-export function createApp({ clientOrigin = 'http://localhost:5173', pool, jwtSecret } = {}) {
+export function createApp({ clientOrigin = 'http://localhost:5173', pool, jwtSecret, timeZone = 'Asia/Kolkata', now = () => new Date() } = {}) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -16,7 +17,10 @@ export function createApp({ clientOrigin = 'http://localhost:5173', pool, jwtSec
   });
 
   // Dependency injection keeps foundation tests independent of PostgreSQL.
-  if (pool) app.use('/api/auth', createAuthRouter({ pool, jwtSecret }));
+  if (pool) {
+    app.use('/api/auth', createAuthRouter({ pool, jwtSecret }));
+    app.use('/api/readings', createReadingsRouter({ pool, jwtSecret, timeZone, now }));
+  }
 
   app.use((_request, response) => {
     response.status(404).json({ error: {
